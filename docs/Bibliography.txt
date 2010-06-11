@@ -1,0 +1,21 @@
+ - Sun Java tutorials - audio
+ - Java API
+ - SVN book
+ - Limiting length of text in a JTextField:
+		http://www.coderanch.com/t/434146/Swing-AWT-SWT-JFace/java/JTextField-set-size-limit
+
+ - Sockets:
+		http://java.sun.com/developer/onlineTraining/Programming/BasicJava2/socket.html
+
+ - Double buffering:
+		http://forums.java.net/jive/message.jspa?messageID=298067
+		http://www.coderanch.com/t/346123/Swing-AWT-SWT-JFace/java/createBufferStrategy-Double-Buffering-Swing
+
+ - Canvas:
+		http://docjar.org/docs/api/java/awt/Canvas.html
+
+ - Cryptography:
+		http://java.sun.com/j2se/1.4.2/docs/guide/security/jce/JCERefGuide.html
+
+ - Hashmap:
+		http://java.sun.com/j2se/1.4.2/docs/api/java/util/HashMap.html

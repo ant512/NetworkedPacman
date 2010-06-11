@@ -1,0 +1,370 @@
+Contents
+ 
+ - System Features
+ - Server Design
+ - Server Threading
+   - PacThread
+   - LobbyThread
+   - GameThread
+ - Detecting Client Failures
+ - Detecting Server Failures
+
+---
+
+
+System Features:
+
+ - Supports multiple games.
+ - Supports realtime and turn-based games.
+ - Supports multiple networked players.
+ - Stores highscores.
+ - Stores player and game statistics.
+ - Includes cheat protection.
+ - Uses clean tiered system design for communication between client, server and
+   database layers.
+ - Supports inter-client communication.
+ - Detects failed clients/server and responds appropriately.
+ - Detects client logouts.
+ - Simple user authentication system.
+
+---
+
+Server Design
+
+ - The server has no knowledge of how games work or are played.
+ - The server has just a few main areas of responsibility:
+   - Listening for client connections;
+   - Co-ordinating messages between clients;
+   - Validating scores;
+   - Interacting with the database.
+ - The server is split into two packages:
+   - pacserver handles all threading and client communications.
+   - database handles all database interaction, and includes classes for
+     transmitting data extracted from the database around the system.
+
+---
+
+Server Threading
+
+ - Server implements two types of thread, "LobbyThread" and "GameThread".
+ - Both types implement the same basic functionality - they inherit from
+   PacThread.
+
+Pac Thread
+
+ - PacThread maintains a list of dead clients, a list of active clients, and a 
+   postbox.
+ - All clients have a pointer to the postbox so they can send messages to each
+   other and the server, and the server can similarly send messages to them.
+ - Clients are initially stored in the active client list, but if they are
+   detected as having died, they are moved into the dead client list.
+ - Multiple clients can be connected to a single thread; this means that the
+   functions that read from the clients do not block, which gives the system
+   the ability to co-ordinate messages between clients and run asynchronous
+   communications.
+
+Lobby Thread
+
+ - Clients not involved in any games are added to the lobby thread.
+ - They stay in the lobby thread until they try to join a game, at which point
+   the server:
+   - Tries to locate a GameThread that has not yet begun, has free slots, and
+     is running the correct type of game.
+   - If a slot is found, the player is moved into that GameThread.
+   - If no slot is found, a new GameThread is created and the player is moved
+     into that.
+
+Game Thread
+
+ - Game threads are created when a client tries to join a game, if no suitable
+   game can be found.
+ - They can contain only as many clients as the particular game they are hosting
+   supports.  For example, a GameThread running Connect 4 can only contain two
+   clients.
+ - Clients moved into a game thread have their postbox redirected to the game
+   thread's postbox, which ensures they can only talk to each other and the
+   server for the duration of the game.  This prevents superfluous messages
+   sent to uninterested clients.
+ - When a game thread contains the maximum number of clients, it sends a list of
+   those clients to all of the clients within the list.  This means a game has
+   begun, and it allows all clients to know who they are playing against.
+ - When a game ends, all of the clients send their scores to the server; once
+   all messages are received, the scores are validated, saved and stored in the
+   database.
+ - Clients are moved back to the lobby, their postboxes are redirected to the
+   lobby postbox, and the game thread ends.
+
+---
+
+Detecting Client Failures
+
+ - Server.java in PacMan project
+ - Client.jave in PacServer project
+
+Problem
+
+ - Server needs to identify clients that have crashed/lost network connectivity/
+   otherwise left the game, so that dead clients don't hold up games.  Also need
+   to be able to record client disconnections in the database to punish players
+   who willfully disconnect if they see that they are losing.
+ - Java sockets use TCP as their transport protocol, and TCP does not provide
+   any built-in method for detecting socket disconnections.  The only available
+   method, setKeepAlive(), is not intended for this purpose.  An application-
+   level solution, not a protocol-level solution, must be implemented.
+
+Solution
+
+Keeping the Connection Alive
+
+ - Server keeps track of the time at which it last received a message from the
+   client.
+ - The client regularly sends "ping" messages to the server, which aren't 
+   interpreted or otherwise dealt with; they simply indicate that the client is
+   still alive, and cause the server to reset its "last message received"
+   variable to the current time.
+
+Detecting Failures
+
+ - If no message is received from a client within a certain timeframe, the
+   server assumes that the client is dead.
+ - The server removes dead clients from the list of clients, and notifies its
+   peers that the client is dead.
+
+---
+
+Detecting Server Failures
+
+ - Server.java in PacMan project
+ - Client.jave in PacServer project
+
+Problem
+
+ - Clients need to identify that they have lost connection to the server, which
+   could be caused by a server crash/loss of connectivity/etc, so that they do
+   not keep games running if the game is no longer in contact with any peers
+   (since peer communication is handled via the server as an intermediary).
+ - Java sockets use TCP as their transport protocol, and TCP does not provide
+   any built-in method for detecting socket disconnections.  The only available
+   method, setKeepAlive(), is not intended for this purpose.  An application-
+   level solution, not a protocol-level solution, must be implemented.
+
+Solution
+
+Keeping the Connection Alive
+
+ - The client keeps track of the time at which it last received a message from
+   the server.
+ - The server regularly sends "ping" messages to all clients, which aren't
+   interpreted or otherwise dealy with; they simply indicate that the server is
+   still alive, and cause the client to reset its "last message received"
+   variable to the current time.
+
+Detecting Failures
+
+ - If no message is received from the server within a certain timeframe, the
+   client assumes that the server is dead.
+ - At this point, there is nothing that the client can do (since all
+   functionality is inextricably connected to the server), so it exits.
+
+---
+
+Cheat Detection and Prevention
+
+ - GameThread.java in PacServer project
+   - handleGameOver() and getValidatedResults()
+
+Problem
+
+ - It is feasible that a client has been modified to send incorrect data to the
+   server when a game ends, such that it appears that the client has won the
+   game.
+ - This basically allows a client to cheat by identifying itself as the winner.
+
+Solution
+
+ - System uses a "Byzantine general" solution.
+ - The system does not declare a game to be over until it receives score data
+   from all active clients (dead clients are assumed to have a score of 0).
+ - When all data is received, the server determines the most frequent set of
+   scores for each player.  If, in a 4 player game, player 1 has a score of 300
+   from 3 clients, and 50000 from one client, the smaller value is the most
+   frequent and is therefore assumed to be correct.
+ - The assumed-correct values are inserted into the database.
+ - In the case of a deadlock (ie. two player games, in which the scores do not
+   agree), the score examined first is assumed to be correct, since it is not
+   possible to determine in such a situation which is the correct value (ditto
+   for scenario in which all clients disagree where there are more than 2
+   clients).
+
+Method - getValidatedResults()
+
+ - Create a hashmap that will use the score values as keys, and the frequencies
+   as values.
+ - Check the scores reported by all clients.
+ - Each time a score is encountered, check if it exists in the hashmap.
+ - If so, increase the frequency of the stored score.
+ - If not, add the score to the hashmap.
+ - Finally, retrieve a list of the most frequent scores for each player and save
+   that list to the database.
+
+---
+
+Communication - Messages
+
+Message Format
+
+ - Clients and server communicate via strings.  This is (presumably) faster than
+   serializing objects, and more versatile than sending individual integers.
+ - Message strings have a set format:
+      header:data
+
+Message Header
+
+ - The header is always formatted in the same way:
+      from,to,type
+ - The values of "from" and "to" are integers greater than 0 that correspond to
+   the unique IDs given to each client when they first connect to the server and
+   perform a "handshake".
+ - "from" and "to" can also be "0", in which case the message originated from or
+   is being sent to the server.
+ - They can also be "-1", in which case the message is being sent to all of a
+   client's peers.  This gives the messaging system simulated multicast ability.
+ - The "type" value is also an integer.  Values of "type" less than 0 indicate
+   a "server message" - these are messages predefined by the system, such as
+   "login", "logout", etc.  The full list of message types can be found in the
+   PacMan project in the comms.ServerMessage.ServerMessageType enum:
+
+      HANDSHAKE (-1)
+      LOGOUT (-2)
+      LOGIN (-3)
+      PEER_LIST (-4)
+      PLAYER_DATA (-5)
+      JOIN_GAME (-6)
+      GAME_LIST (-7)
+      REGISTER (-8)
+      PLAYER_STATS (-9)
+      END_GAME (-10)
+      HIGH_SCORES (-11)
+      PING (-12)
+      CLIENT_FAILED (-13)
+      GAME_STATS (-14)
+
+   A similar list exists in the server project.
+ - Values of "type" greater than 0 indicate a "game message".  Game messages are
+   game-specific, so PacMan implements a type "1" which indicates that the
+   message contains sprite position data, whilst Connect 4 implements a type "1"
+   that represents a message containing the position of a newly placed playing
+   piece.
+ - Choosing values of server and game message that diverge from 0 ensures that
+   the two types of message will never collide.
+
+Message Data
+
+ - The data portion of the message is determined by that message; each message
+   type has an associated format for the data portion of the message.
+ - For example, a message from client 1 to all of its peers indicating that the
+   client has logged out looks like this:
+
+      1,-1,-2:
+
+   There is no data associated with this message, so the data portion is empty.
+ - A message from client 3 to the server requesting a log in with the username
+   "Bob" and the password "bob" looks like this:
+
+      3,0,-3:Bob,bob
+
+General
+
+ - Both the server and client agree on the values of each server message type.
+ - The server has no knowledge of game message types; it simply routes them
+   between clients in a GameThread.
+
+---
+
+Communication - Synchronous Communication
+
+ - To implement synchronous communication on the client, the client implements
+   a "waitForMessage(type, time)" method in the Server class.
+ - This method waits for a message of the specified type for the specified time,
+   and either returns the message (if received) or throws an exception (if the
+   time is exceeded).  It achieves this by blocking in a while() loop.
+
+---
+
+Communication - Asynchronous Communication
+
+ - The client implements a number of features to implement asynchronous
+   communication.
+ - The Server class in the PacMan project has a "run()" method which must be
+   executed every time the game state is refreshed.  This method calls the 
+   "queueMessages()" method which checks the socket's input stream for incoming
+   messages and adds any messages to a message queue (implemented as a linked
+   list, to ensure that messages are processed later in the order in which they
+   were received).
+ - Once all messages have been queued, they are processed by the
+   "processMessages()" method.
+ - This method retrieves the first message from the queue and sends it to a
+   class that implements the "MessageHandlerInterface" interface.
+ - The message handler splits each message into its components and, based on the
+   type of the message and its from/to addresses, decides what to do with the
+   message and processes it.
+ - This gives the illusion of asynchronous communication, as long as the Server
+   class' "run()" method is called regularly.
+
+---
+
+Abstraction Layers
+
+ - Client uses Server.java to handle all communication to and from the server.
+ - Server uses Client.java to handle all communication to and from the client.
+ - Server uses Database.java to handle all communication to and from the
+   database.
+ - No other classes interact with the server or client.
+ - For example, for the client to retrieve a list of games from the server:
+   - Client:
+     - Calls Server.getGameList().
+     - Server.getGameList() sends a message via the network to the server.
+     - Server:
+       - Client class receives message from socket.
+       - Client class calls Database.getGameList().
+       - Database class opens connection to database server.
+       - Database class creates SQL query and sends it to the database for
+         execution.
+       - Database:
+         - Executes query and returns results.
+       - Database class inserts results of query into GameList object and
+         returns it.
+       - Client class sends message to client containing GameList object.
+     - Server class receives message and returns it.
+     - Original calling class uses GameList as required.
+
+ - Design prevents database, client and server interactions being spread
+   throughout the code.
+ - Called a "tiered" system design.
+
+---
+
+Design Decisions
+
+Asynchronous Communication and Failure Detection
+
+ - The client needs to ping the server regularly, move messages from the input
+   buffer to the queue and receive pings, the client needs a method that can be
+   called regularly to:
+    - Sending pings to the server when necessary
+    - Detecting server failures
+    - Queue incoming messages
+   The "queueMessages()" method in the Server class does this.
+ - Due to the need to have this running all of the time, all games must call
+   "Server.processMessages()" (which in turn calls "queueMessages()") or a
+   "waitForX()" method (which in turn call "queueMessages()".
+ - Similarly, all cases where the client is not running a game (ie. in the UI)
+   need to call "queueMessages()".  To achieve this, the UI frames all inherit
+   from a base ClientFrame class that uses a timer to call "queueMessages()".
+ - Would perhaps have been better implemented as a separate thread running on
+   the client - thread would have called the Server.processMessages() method
+   regularly, meaning the UI would be cleaner in design and the games would do
+   less work.
+ - However, implementing this resulted in a very significant drop in PacMan
+   performance; the multithreaded design was subsequently reverted back to the
+   present system.

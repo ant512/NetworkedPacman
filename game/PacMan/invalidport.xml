@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<Servers>
+<!--Server Details-->
+<server>
+<address>localhost</address>
+<port>notaport</port>
+</server>
+</Servers>
