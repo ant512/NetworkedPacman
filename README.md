@@ -149,4 +149,4 @@ The Author
   Written by Antony Dzeryn.  For more info, email me at spam_mail250@yahoo.com
   (that *is* a real email address).
   
-  You can find my blog at http://ant.simianzombie.com/blog
+  You can find my blog at http://simianzombie.com/blog
